@@ -1,0 +1,117 @@
+---
+title: "Predicting Breast Cancer"
+author: "Muiz Rahemtullah"
+date: "9/11/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this project, we will use machine learning algorithms to predict a binary outcome, in this case whether a woman either has a benign or malignant tumor. We will get a dataset from the UC Irvine Machine Learning database. The rows are different woman and the rows are different features of intrest.
+```{r}
+uciwd ="https://archive.ics.uci.edu/ml/machine-learning-databases/"
+mldata = paste(uciwd,"breast-cancer-wisconsin/breast-cancer-wisconsin.data", sep="")
+bcancer = read.csv(mldata)   # Treat the first row as variable names
+bcancer
+
+bcancer = read.csv(mldata, header=F) # Treat the data begins from the first row
+
+colnames(bcancer)=c("ID","clump_thick","cell_size","cell_shape", "marginal","epithelial","nuclei",
+                    "chromatin","nucleoli","mitoses","class")
+str(bcancer)
+summary(bcancer)
+table(bcancer$nuclei)
+
+bcancer$nuclei=as.numeric(gsub("\\?","NA",bcancer$nuclei))
+
+library(Hmisc)
+bcancer$nuclei <- impute(bcancer$nuclei, mean)
+anyNA(bcancer$nuclei)
+
+attach(bcancer)
+bcancer$class <- as.numeric(gsub(2, 0, bcancer$class))
+bcancer$class <- as.numeric(gsub(4, 1, bcancer$class))
+bcancer$nuclei <- as.integer(bcancer$nuclei)
+str(bcancer)
+```
+
+Now we will divide the data into the training and testing set. 
+```{r}
+library(caret)
+set.seed(99)
+cancer_set <- bcancer[, -1]
+total_set <- createDataPartition(cancer_set$class, p = 0.60, list = FALSE)
+training_set <- cancer_set[total_set,]
+testing_set <- cancer_set[-total_set,]
+```
+
+Now we will run a tree model. A tree model breaks down all obervations from the training set by the key predictors which in this case are cell size and nuceli. 
+```{r}
+library(rattle)
+attach(training_set)
+training_set$class <- as.factor(training_set$class)
+tree_model <- train(class~., data=training_set, method="rpart")
+tree_model
+fancyRpartPlot(tree_model$finalModel)
+```
+
+Now we will run a LDA Model using 10-Fold Cross Validation. The LDA algorithm uses a linear combinition of features, in this case the features of breast cancer like skin type, that characterizes the predictor variable. 
+```{r}
+control <- trainControl(method="cv", number=10)
+metric <- "Accuracy"
+
+set.seed(99)
+lda_fit <- train(class~., data=training_set, method="lda", metric=metric, trControl=control)
+lda_fit
+```
+
+We will now use a KNN Machine Learning Algorithm. We attempt to predict the type of tumor by looking at the neighbors of the observation we are working on at that moment. In this context of the problem, this may not be the best model. 
+```{r}
+set.seed(99)
+knn_fit <- train(class~., data=training_set, method="knn", metric=metric, trControl=control)
+knn_fit
+```
+
+We will now use a Bayesian Generalized Linear Model
+```{r}
+set.seed(99)
+bayes_fit <- train(class~., data=training_set, method="bayesglm", metric=metric, trControl=control)
+bayes_fit
+```
+
+We will now use an SVM Machine Learning Model. This model creates a boundary called a hyperplane and examines the observations closest to the boundary to classify.
+```{r}
+set.seed(99)
+svm_fit <- train(class~., data=training_set, method="svmRadial", metric=metric, trControl=control)
+svm_fit
+```
+
+We will now use a Random Forest Model. We take a random number of predictors and create models with them. After several times of using random predictors and creating several models, we average them out to create one powerful model using elements from each of the weaker submodels. 
+```{r}
+set.seed(99)
+random_forest_fit <- train(class~., data=training_set, method="rf", metric=metric, trControl=control)
+random_forest_fit
+```
+
+Finally, we will use a XGB Linear Boosting Model. This model is based on the concept of Boosting. This is a method for reducing our variance. We obtain new datasets by drawing existing observations from our existing dataset with replacement. This way we can train our model further and average out all predictions. In addition, we grow our models sequentially and fit a model to the residuals of the previous model for further accuracy.
+```{r}
+set.seed(99)
+boosting_fit <- train(class~ ., data=training_set, method="xgbLinear", metric=metric, trControl=control)
+boosting_fit
+```
+
+The best model is the one with the highest kappa value. Recall that kappa represents the accuracy of the model, which is based on the Observed Accuracy and the Expected Accuracy. The Observed Accuracy is defined to be all instances where the machine learning model was in agreement with the ground truth. In the context of this problem, the Observed Accuracy is all instances where the model's prediction of weather the person has a benign or malignant tumor was in agreement of what type of tumor the patient had in real life. It is the number of times the model was correct. The Expected Accuracy is based on the number of times we classify the type of cancer according to ground truth multiplied by the number of times we classify the type of cancer according to ground truth. Then kappa is equal to $\kappa = \frac{O-E}{1-E}$, where $O$ is Oberved Accuracy and $E$ is Expected Accuracy. The kappa values for each model are as follows:
+\begin{itemize}
+  \item The kappa value for the XGB Linear Boosting Model is .912
+  \item The kappa value for the Random Forest Model is .923
+  \item The kappa value for the SVM Model is .873
+  \item The kappa value for the Bayes Model is .895
+  \item The kappa value for the KNN Model is .159
+  \item The kappa value for the LDA Model is .905
+\end{itemize}
+
+Judging by these values, it seems that the Random Forest Model is the best model followed closely by the XGB Linear Boosting Model and the LDA Model. 
